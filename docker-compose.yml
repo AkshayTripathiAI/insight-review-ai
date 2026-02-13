@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reviews
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:v1.16.2
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/reviews
+      QDRANT_URL: http://qdrant:6333
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - qdrant
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.streamlit
+    environment:
+      API_BASE_URL: http://api:8000/api/v1
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
