@@ -34,15 +34,21 @@ def list_reviews_for_product(db: Session, product_id: int, limit: int = 50, offs
 
 
 def create_mock_reviews(db: Session, product: Product, count: int = 10) -> List[Review]:
+    """Attach sample reviews (see app.demo_data) so the pipeline can run without scraping."""
+    from app.demo_data import DEMO_PRODUCTS
+
+    pool = next((p["reviews"] for p in DEMO_PRODUCTS if p["name"] == product.name), None)
+    if pool is None:
+        pool = [r for p in DEMO_PRODUCTS for r in p["reviews"]]
     reviews: List[Review] = []
-    for i in range(count):
+    for i, (rating, title, body) in enumerate(pool[:count]):
         review = Review(
             product_id=product.id,
             external_review_id=None,
-            author=f"User {i + 1}",
-            rating=5 if i % 2 == 0 else 4,
-            title=f"Mock review {i + 1}",
-            body="This is a mock review generated for demonstration of the pipeline.",
+            author=f"Sample user {i + 1}",
+            rating=rating,
+            title=title,
+            body=body,
             language="en",
             review_date=None,
         )
@@ -52,4 +58,3 @@ def create_mock_reviews(db: Session, product: Product, count: int = 10) -> List[
     for review in reviews:
         db.refresh(review)
     return reviews
-

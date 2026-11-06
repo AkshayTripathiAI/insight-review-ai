@@ -2,6 +2,7 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import Product
 from app.db.models import Review
 from app.services.amazon_scraper import fetch_reviews_for_asin
@@ -11,6 +12,8 @@ from app.services.review_service import create_mock_reviews
 def ingest_reviews(db: Session, product: Product) -> List[Review]:
     reviews: List[Review] = []
     if product.source == "amazon" and product.external_id:
+        if not get_settings().enable_scraping:
+            raise RuntimeError("Scraping is disabled on this deployment (ENABLE_SCRAPING=false).")
         scraped = fetch_reviews_for_asin(product.external_id, max_pages=1)
         for index, item in enumerate(scraped):
             review = Review(
@@ -29,6 +32,6 @@ def ingest_reviews(db: Session, product: Product) -> List[Review]:
         for review in reviews:
             db.refresh(review)
         return reviews
-    reviews = create_mock_reviews(db, product, count=10)
+    reviews = create_mock_reviews(db, product, count=20)
     return reviews
 

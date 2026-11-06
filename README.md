@@ -1,159 +1,92 @@
-# InsightReview AI – Amazon Review Intelligence Platform
+# InsightReview AI
 
-InsightReview AI turns raw Amazon product reviews into structured insights, semantic search, and RAG-style Q&A using a modular FastAPI backend, PostgreSQL, Qdrant, and a Streamlit dashboard.
+Turn raw product reviews into structured insight: LLM aspect-based sentiment, an AI product summary with pros and cons, semantic search, and question answering over reviews with citations.
 
-This project evolves an original Amazon review scraper into a production-style AI Review Intelligence Platform suitable for a portfolio.
+**Live demo:** _coming soon_ (the free-tier API sleeps when idle, so the first load can take up to a minute)
 
-## Features
+> The demo runs on hand-written sample reviews for fictional products (`app/demo_data.py`). They are not real customer reviews.
 
-- Scrape or ingest reviews for Amazon products or mock data
-- Store normalized reviews in PostgreSQL
-- Extract aspects and sentiments per review using an LLM
-- Generate product-level summaries
-- Create embeddings and store them in Qdrant
-- Semantic search over reviews
-- RAG-based Q&A about a product
-- FastAPI JSON APIs plus a Streamlit dashboard
-- Docker-based local setup
+## What it does
 
-## Architecture Overview
+| Stage | How |
+|---|---|
+| Ingest | Mock/sample reviews, or an optional Selenium + BeautifulSoup Amazon scraper (`source="amazon"` + ASIN) |
+| Aspect sentiment | An LLM reads reviews in batches of 8 and returns JSON `{aspect, sentiment, evidence}` triples; invalid labels are dropped |
+| Summary | One LLM call per product → overall sentiment, 2–3 sentence summary, pros, cons |
+| Embeddings | Gemini `gemini-embedding-001` (768 dims, L2-normalised), stored in Qdrant with the review id as point id |
+| Semantic search | Qdrant vector search filtered to the product |
+| Q&A (RAG) | Top-k reviews → LLM answer that cites `[Review <id>]`, with sources returned |
+| Dashboard | Streamlit: metrics, summary, aspect sentiment chart, Q&A, semantic search |
 
-- FastAPI app in `app/` as a modular monolith
-- PostgreSQL for relational storage
-- Qdrant as vector database for review embeddings
-- LLM client abstraction with support for Llama 3.2 via Ollama
-- Streamlit dashboard as a thin client on top of the APIs
+Enrichment is idempotent: re-processing replaces aspects, the summary and vectors instead of duplicating them.
 
-High-level data flow:
+## Architecture
 
-1. Ingest reviews for a product
-2. Store reviews in PostgreSQL
-3. Run enrichment to extract aspects and sentiments and generate embeddings
-4. Push embeddings to Qdrant
-5. Expose analytics and RAG endpoints via FastAPI
-6. Visualize and query via the Streamlit dashboard
-
-## Tech Stack
-
-- Python 3.11
-- FastAPI
-- SQLAlchemy
-- PostgreSQL
-- Qdrant
-- Streamlit
-- Selenium and BeautifulSoup for scraping
-
-## Running Locally with Docker
-
-From the project root:
-
-```bash
-cd Amazon_review_scrapper
-docker-compose up --build
+```
+Streamlit dashboard ──HTTP──▶ FastAPI (/api/v1)
+                                ├── PostgreSQL   products, reviews, aspects, summaries
+                                ├── Qdrant       review vectors (server, Qdrant Cloud, or in-process)
+                                ├── LLM          any OpenAI-compatible API (Groq by default) or native Ollama
+                                └── Embeddings   Gemini API
 ```
 
-Services:
-
-- FastAPI: http://localhost:8000 (docs at `/docs`)
-- Streamlit dashboard: http://localhost:8501
-- PostgreSQL: localhost:5432
-- Qdrant: http://localhost:6333
-
-The FastAPI app will auto-create tables on startup.
-
-## Core API Endpoints
-
-Base URL is `/api/v1`.
-
-- `POST /products`  
-  Create a product.
-
-- `GET /products`  
-  List products.
-
-- `POST /products/{product_id}/ingest`  
-  Ingest reviews for a product. For `source="amazon"` and an `external_id` (ASIN), this uses scraping logic when available, otherwise falls back to mock review generation.
-
-- `POST /products/{product_id}/process`  
-  Run aspect extraction, sentiment, embeddings, and summary generation.
-
-- `GET /reviews/product/{product_id}`  
-- `GET /analytics/products/{product_id}/aspects`  
-- `GET /analytics/products/{product_id}/summary`  
-
-- `POST /rag/products/{product_id}/semantic-search`  
-  Semantic search over reviews for a product.
-
-- `POST /rag/products/{product_id}/qa`  
-  RAG-based Q&A over reviews.
-
-## LLM Configuration (Llama 3.2 via Ollama)
-
-The LLM client is pluggable. By default it uses an internal stub, but you can use a local Llama 3.2 model via Ollama.
-
-Example Ollama setup:
+## Run locally
 
 ```bash
-ollama pull llama3.2
+cp .env.example .env          # add LLM_API_KEY (Groq) and GOOGLE_API_KEY (Gemini)
+docker compose up --build
 ```
 
-Environment variables for the FastAPI service:
+- API: http://localhost:8000/docs
+- Dashboard: http://localhost:8501
 
-- `LLM_PROVIDER=ollama-llama`
-- `LLM_MODEL=llama3.2`
-- `LLM_BASE_URL=http://host.docker.internal:11434` (or `http://localhost:11434` if running outside Docker)
+With `AUTO_BOOTSTRAP=true` (set in `docker-compose.yml`) the API loads the three sample products and runs the full pipeline on first start.
 
-The client sends prompts to `LLM_BASE_URL` using the Ollama HTTP API. For JSON-style tasks such as aspect extraction it sends an instruction to respond with machine-readable JSON and parses the response.
+To use a local model instead of Groq: `LLM_PROVIDER=openai LLM_BASE_URL=http://host.docker.internal:11434/v1 LLM_MODEL=llama3.2`.
 
-## Ingestion and Scraping
+## API
 
-There are two main ingestion paths:
+Base path `/api/v1`.
 
-- Mock ingestion for fast local testing without external dependencies
-- Amazon scraping using Selenium and HTML parsing
+| Method | Path | |
+|---|---|---|
+| `POST` | `/products/` | create a product |
+| `GET` | `/products/` | list products |
+| `POST` | `/products/{id}/ingest` | ingest reviews |
+| `POST` | `/products/{id}/process` | aspects + embeddings + summary |
+| `GET` | `/reviews/product/{id}` | reviews |
+| `GET` | `/analytics/products/{id}/aspects` | aspect sentiment counts (top 15) |
+| `GET` | `/analytics/products/{id}/summary` | AI summary |
+| `POST` | `/rag/products/{id}/semantic-search` | `{query, top_k}` |
+| `POST` | `/rag/products/{id}/qa` | `{question, top_k}` |
+| `GET` | `/health` | status, bootstrap state, providers |
 
-For products created with `source="mock"`, ingestion uses synthetic reviews so the full pipeline can be exercised without hitting Amazon.
+## Configuration
 
-For products created with `source="amazon"` and a valid ASIN in `external_id`, ingestion uses scraping logic based on Selenium and BeautifulSoup to fetch reviews and normalize them into the internal review schema.
+See `.env.example`. Key settings:
 
-## Testing
+| Variable | Default | Purpose |
+|---|---|---|
+| `LLM_PROVIDER` | `stub` | `openai` (OpenAI-compatible), `ollama-llama`, or `stub` for offline tests |
+| `LLM_MODEL` | `openai/gpt-oss-20b` | model name at the provider |
+| `EMBED_PROVIDER` | `hash` | `gemini`, or `hash` (deterministic, non-semantic; tests only) |
+| `QDRANT_URL` | `http://qdrant:6333` | or `:memory:` for an in-process index rebuilt from Postgres on startup |
+| `DEMO_READ_ONLY` | `false` | block create/ingest/process on a public deployment |
+| `QA_RATE_LIMIT_PER_HOUR` | `60` | per-client limit on search and Q&A |
 
-Tests use pytest and FastAPI's TestClient.
+## Free-tier deployment
 
-Install dev dependencies locally:
+`render.yaml` deploys the API and the dashboard as two free Render web services. Postgres comes from Neon's free tier and Qdrant runs in-process, so the only accounts needed are Render, Neon, Groq and Gemini. After a restart the vector index is rebuilt from Postgres without repeating any LLM calls.
+
+## Tests
 
 ```bash
 pip install -r requirements.txt
+DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/reviews pytest
 ```
 
-Make sure PostgreSQL and Qdrant are available, for example by running:
+Tests run the full pipeline offline (stub LLM, hash embeddings, in-memory Qdrant) against a real Postgres. GitHub Actions runs them on every push.
 
-```bash
-docker-compose up db qdrant
-```
+## Tech stack
 
-Then run:
-
-```bash
-pytest
-```
-
-Basic tests cover:
-
-- Creating a product
-- Ingesting reviews (mock path)
-- Running enrichment
-- Calling RAG endpoints
-
-## Qdrant Collection Management
-
-On startup the app ensures a `review_embeddings` collection exists in Qdrant with the configured vector dimension and a cosine distance metric. This keeps vector search consistent and debuggable.
-
-## Roadmap
-
-- Richer aspect extraction and sentiment modeling
-- Time-series analytics and multi-product comparisons
-- Authentication and API keys
-- More robust scraping and error handling
-- Expanded test coverage and CI integration
-
+Python 3.11 · FastAPI · SQLAlchemy 2 · PostgreSQL · Qdrant · Groq (OpenAI-compatible) · Gemini embeddings · Streamlit · Docker · GitHub Actions

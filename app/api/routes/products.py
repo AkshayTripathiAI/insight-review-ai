@@ -5,6 +5,7 @@ from fastapi import Depends
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.api.guards import require_writable
 from app.db import get_db
 from app.db.models import Product
 from app.pipelines.review_enrichment import enrich_reviews_for_product
@@ -19,7 +20,7 @@ from app.services.review_service import list_products
 router = APIRouter()
 
 
-@router.post("/", response_model=ProductRead)
+@router.post("/", response_model=ProductRead, dependencies=[Depends(require_writable)])
 def create_product_endpoint(payload: ProductCreate, db: Session = Depends(get_db)) -> Product:
     product = create_product(
         db=db,
@@ -37,16 +38,19 @@ def list_products_endpoint(db: Session = Depends(get_db)) -> List[Product]:
     return products
 
 
-@router.post("/{product_id}/ingest")
-def ingest_product_reviews(product_id: int, db: Session = Depends(get_db)) -> dict:
+@router.post("/{product_id}/ingest", dependencies=[Depends(require_writable)])
+def ingest_product_reviews_endpoint(product_id: int, db: Session = Depends(get_db)) -> dict:
     product = get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    count = ingest_product_reviews(db, product)
+    try:
+        count = ingest_product_reviews(db, product)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"status": "ok", "ingested_reviews": count}
 
 
-@router.post("/{product_id}/process")
+@router.post("/{product_id}/process", dependencies=[Depends(require_writable)])
 def process_product_reviews(product_id: int, db: Session = Depends(get_db)) -> dict:
     product = get_product(db, product_id)
     if not product:

@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
+from sqlalchemy import case
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -27,13 +28,15 @@ def aggregate_aspects(product_id: int, db: Session = Depends(get_db)) -> List[As
     rows = (
         db.query(
             ReviewAspect.aspect,
-            func.sum(func.case((ReviewAspect.sentiment == "positive", 1), else_=0)).label("positive_count"),
-            func.sum(func.case((ReviewAspect.sentiment == "negative", 1), else_=0)).label("negative_count"),
-            func.sum(func.case((ReviewAspect.sentiment == "neutral", 1), else_=0)).label("neutral_count"),
+            func.sum(case((ReviewAspect.sentiment == "positive", 1), else_=0)).label("positive_count"),
+            func.sum(case((ReviewAspect.sentiment == "negative", 1), else_=0)).label("negative_count"),
+            func.sum(case((ReviewAspect.sentiment == "neutral", 1), else_=0)).label("neutral_count"),
         )
         .join(Review, Review.id == ReviewAspect.review_id)
         .filter(Review.product_id == product_id)
         .group_by(ReviewAspect.aspect)
+        .order_by(func.count(ReviewAspect.id).desc())
+        .limit(15)
         .all()
     )
     aggregates: List[AspectAggregate] = []
@@ -41,9 +44,9 @@ def aggregate_aspects(product_id: int, db: Session = Depends(get_db)) -> List[As
         aggregates.append(
             AspectAggregate(
                 aspect=row.aspect,
-                positive_count=row.positive_count,
-                negative_count=row.negative_count,
-                neutral_count=row.neutral_count,
+                positive_count=row.positive_count or 0,
+                negative_count=row.negative_count or 0,
+                neutral_count=row.neutral_count or 0,
             )
         )
     return aggregates
