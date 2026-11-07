@@ -5,6 +5,7 @@ services:
     name: insightreview-api
     runtime: docker
     plan: free
+    region: singapore
     dockerfilePath: ./docker/Dockerfile.api
     healthCheckPath: /health
     envVars:
@@ -37,6 +38,7 @@ services:
     name: insightreview-dashboard
     runtime: docker
     plan: free
+    region: singapore
     dockerfilePath: ./docker/Dockerfile.streamlit
     envVars:
       - key: API_BASE_URL
