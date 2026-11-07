@@ -2,7 +2,7 @@
 
 Turn raw product reviews into structured insight: LLM aspect-based sentiment, an AI product summary with pros and cons, semantic search, and question answering over reviews with citations.
 
-**Live demo:** _coming soon_ (the free-tier API sleeps when idle, so the first load can take up to a minute)
+**Live demo:** https://insightreview-dashboard.onrender.com · API docs: https://insightreview-api.onrender.com/docs (the free-tier API sleeps when idle, so the first load can take up to a minute)
 
 > The demo runs on hand-written sample reviews for fictional products (`app/demo_data.py`). They are not real customer reviews.
 
